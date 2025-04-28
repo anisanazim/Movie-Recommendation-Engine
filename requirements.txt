@@ -1,0 +1,26 @@
+# Core dependencies
+numpy>=1.20.0
+pandas==1.5.3
+scikit-learn==1.2.2
+matplotlib==3.7.2
+tqdm==4.65.0
+
+# PyTorch (use the appropriate version for your CUDA)
+torch==2.0.1
+torchvision==0.15.2
+torchaudio>=0.10.0
+
+# PyTorch Geometric
+torch-geometric>=2.0.0
+torch-scatter>=2.0.9
+torch-sparse>=0.6.13
+
+# Nearest Neighbor Search
+faiss-cpu==1.7.4  # or faiss-gpu for GPU support
+
+# Visualization
+seaborn==0.12.2
+
+# Utilities
+requests==2.31.0
+python-dateutil>=2.8.2
