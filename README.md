@@ -87,13 +87,7 @@ pip install faiss-gpu  # For efficient nearest neighbor search (or faiss-cpu if 
 Train the PinSage model on the MovieLens dataset:
 
 ```bash
-python train.py --data_dir data/ml-25m --batch_size 512 --epochs 10 --lr 0.001
-```
-
-Or use the main script:
-
-```bash
-python main.py --mode train --data_dir data/ml-25m
+python run.py --mode train
 ```
 
 ### Evaluation
@@ -101,21 +95,15 @@ python main.py --mode train --data_dir data/ml-25m
 Evaluate the trained model:
 
 ```bash
-python main.py --mode evaluate --data_dir data/ml-25m --checkpoint_dir checkpoints
+python run.py --mode evaluate
 ```
 
-### Inference
+### Get Recommendations
 
 Generate recommendations for a specific movie:
 
 ```bash
-python inference.py --data_dir data/ml-25m --movie_id 1 --num_recommendations 10
-```
-
-Or using the main script:
-
-```bash
-python main.py --mode inference --data_dir data/ml-25m --movie_id 1 --num_recommendations 10
+python run.py --mode recommend --movie_id 1 --num_recommendations 10
 ```
 
 ### Search Methods
@@ -201,7 +189,3 @@ If you use this code in your research, please cite the original PinSage paper:
   year={2018}
 }
 ```
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
