@@ -4,32 +4,20 @@ import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
 import time
+from model.loss import BPRLoss
+
 
 def train(model, movie_features, train_data, val_data, random_walk_sampler, 
           negative_sampler, optimizer, scheduler, device, dataset, config):
     """
     Train the PinSage model.
-    
-    Args:
-        model: PinSage model
-        movie_features: Movie feature matrix
-        train_data: Training data
-        val_data: Validation data
-        random_walk_sampler: RandomWalkSampler instance
-        negative_sampler: NegativeSampler instance
-        optimizer: Optimizer
-        scheduler: Learning rate scheduler
-        device: Device to use
-        dataset: MovieLensDataset instance
-        config: Configuration
-        
-    Returns:
-        checkpoint: Dict containing checkpoint data
     """
     print(f"Starting training for {config.EPOCHS} epochs...")
     
     best_val_hitrate = 0.0
     patience_counter = 0
+    # Initialize BPR loss function
+    bpr_loss = BPRLoss(margin=0.01) 
     
     for epoch in range(config.EPOCHS):
         model.train()
@@ -68,14 +56,34 @@ def train(model, movie_features, train_data, val_data, random_walk_sampler,
             query_features = movie_features[valid_query_indices].to(device)
             positive_features = movie_features[positive_indices].to(device)
             
-            # Forward pass (simplified)
+            # Forward pass
             query_embeddings = model(query_features, edge_index=None)
             positive_embeddings = model(positive_features)
             
-            # Compute loss (simplified)
-            # Using cosine similarity loss
-            similarity = torch.sum(query_embeddings * positive_embeddings, dim=1)
-            loss = -torch.mean(similarity)
+            # Generate negative samples
+            random_negatives = negative_sampler.sample_random_negatives(len(query_indices), device)
+            
+            # Get embeddings for negative samples
+            if isinstance(random_negatives, torch.Tensor):
+                if len(random_negatives.shape) == 1:
+                    # Reshape if needed to work with the whole batch
+                    negative_features = movie_features[random_negatives].to(device)
+                    negative_embeddings = model(negative_features)
+                    
+                    # Expand the negative embeddings to match each query
+                    # Each query gets the same set of negatives
+                    negative_embeddings = negative_embeddings.unsqueeze(0).expand(len(query_embeddings), -1, -1)
+                else:
+                    # Multiple negatives per query
+                    negative_embeddings = []
+                    for neg_batch in random_negatives:
+                        neg_features = movie_features[neg_batch].to(device)
+                        neg_embeddings = model(neg_features)
+                        negative_embeddings.append(neg_embeddings)
+                    negative_embeddings = torch.stack(negative_embeddings, dim=1)
+            
+            # Compute loss using BPR
+            loss = bpr_loss(query_embeddings, positive_embeddings, negative_embeddings)
             
             # Backward pass
             optimizer.zero_grad()
@@ -92,6 +100,9 @@ def train(model, movie_features, train_data, val_data, random_walk_sampler,
         # Simulated validation (without actual evaluation)
         val_hitrate = 0.5 + (epoch / (2 * config.EPOCHS))  # Dummy improvement for demonstration
         print(f"Validation Hit-rate@10: {val_hitrate:.4f}")
+        
+        # Update the learning rate scheduler
+        scheduler.step(val_hitrate)
         
         # Save checkpoint if validation performance improves
         if val_hitrate > best_val_hitrate:

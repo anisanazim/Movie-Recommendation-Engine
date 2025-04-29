@@ -18,9 +18,9 @@ USE_VISUAL_FEATURES = False # Whether to use visual features
 
 # Model settings
 HIDDEN_DIM = 256            # Dimension of hidden layers
-EMBED_DIM = 128             # Dimension of final embeddings
-NUM_LAYERS = 2              # Number of graph convolutional layers
-AGGREGATOR_TYPE = "importance"  # Options: "mean", "weighted", "attention", "max", "importance"
+EMBED_DIM = 64             # Dimension of final embeddings
+NUM_LAYERS = 3              # Number of graph convolutional layers
+AGGREGATOR_TYPE = "attention"  # Options: "mean", "weighted", "attention", "max", "importance"
 DROPOUT = 0.2               # Dropout rate
 USE_BATCH_NORM = True       # Whether to use batch normalization
 
@@ -32,7 +32,7 @@ NUM_NEIGHBORS = 50          # Number of neighbors to sample per node
 # Training settings
 BATCH_SIZE = 512            # Batch size for training
 EPOCHS = 10                 # Number of training epochs
-LEARNING_RATE = 0.001       # Learning rate
+LEARNING_RATE = 0.01       # Learning rate
 MARGIN = 0.1                # Margin for max-margin loss
 NUM_NEGATIVE_SAMPLES = 500  # Number of negative samples per batch
 HARD_NEG_FACTOR = 2.0       # Factor to scale hard negative loss
@@ -62,4 +62,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Add or modify these settings:
 USE_DATA_SUBSET = True      # Whether to use a subset of data
-DATA_SUBSET_FRACTION = 0.01  # Fraction of data to use (1%)
+DATA_SUBSET_FRACTION = 0.9  # Fraction of data to use (1%)
+
+LOSS_TYPE = "bpr"  # Options: "max_margin", "bpr", "triplet"
+BPR_MARGIN = 0.01  # Small margin for numerical stability

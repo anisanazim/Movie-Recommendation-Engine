@@ -171,48 +171,72 @@ class MovieLensDataset:
     
     def get_train_val_test_split(self, val_ratio=0.1, test_ratio=0.2):
         """
-        Split the data into training, validation, and test sets.
+        Split the dataset into train/validation/test sets.
         
         Args:
             val_ratio (float): Ratio of validation data
             test_ratio (float): Ratio of test data
             
         Returns:
-            train_data, val_data, test_data: Data objects for training, validation, and testing
+            train_data (dict): Training data
+            val_data (dict): Validation data
+            test_data (dict): Test data
         """
-        print("Splitting data into train/val/test sets...")
+        # Get all user-item interactions
+        interactions = self.ratings_df[['userId', 'movieId']].copy()
         
-        # Group ratings by user
-        user_groups = self.ratings_df.groupby('userId')
+        # Convert IDs to indices
+        user_indices = []
+        movie_indices = []
         
-        train_ratings = []
-        val_ratings = []
-        test_ratings = []
-        
-        # For each user, split their ratings
-        for user_id, group in user_groups:
-            # Sort by timestamp for temporal split
-            sorted_group = group.sort_values('timestamp')
+        for _, row in interactions.iterrows():
+            user_id = row['userId']
+            movie_id = row['movieId']
             
-            n_ratings = len(sorted_group)
-            n_test = max(1, int(n_ratings * test_ratio))
-            n_val = max(1, int(n_ratings * val_ratio))
-            
-            test_ratings.append(sorted_group.iloc[-n_test:])
-            val_ratings.append(sorted_group.iloc[-(n_test+n_val):-n_test])
-            train_ratings.append(sorted_group.iloc[:-(n_test+n_val)])
+            if user_id in self.user_id_to_idx and movie_id in self.movie_id_to_idx:
+                user_indices.append(self.user_id_to_idx[user_id])
+                movie_indices.append(self.movie_id_to_idx[movie_id])
         
-        # Combine ratings
-        train_df = pd.concat(train_ratings)
-        val_df = pd.concat(val_ratings)
-        test_df = pd.concat(test_ratings)
+        # Get the total number of samples
+        n_samples = len(user_indices)
         
-        print(f"Split data: {len(train_df)} train, {len(val_df)} val, {len(test_df)} test interactions")
+        # Shuffle indices
+        indices = np.random.permutation(n_samples)
         
-        # Create separate edge indices for each split
-        train_data = self._create_split_data(train_df)
-        val_data = self._create_split_data(val_df)
-        test_data = self._create_split_data(test_df)
+        # Calculate split sizes
+        n_test = int(test_ratio * n_samples)
+        n_val = int(val_ratio * n_samples)
+        n_train = n_samples - n_test - n_val
+        
+        # Split indices
+        train_indices = indices[:n_train]
+        val_indices = indices[n_train:n_train+n_val]
+        test_indices = indices[n_train+n_val:]
+        
+        # Create positive pairs for each split
+        train_pos_pairs = torch.tensor([[user_indices[i], movie_indices[i]] for i in train_indices])
+        val_pos_pairs = torch.tensor([[user_indices[i], movie_indices[i]] for i in val_indices])
+        test_pos_pairs = torch.tensor([[user_indices[i], movie_indices[i]] for i in test_indices])
+        
+        # Get maximum valid index (ensuring all indices are within bounds)
+        max_movie_idx = len(self.movie_id_to_idx) - 1
+        max_user_idx = len(self.user_id_to_idx) - 1
+        
+        # Filter out pairs with out-of-bounds indices
+        train_valid_mask = (train_pos_pairs[:, 0] <= max_user_idx) & (train_pos_pairs[:, 1] <= max_movie_idx)
+        val_valid_mask = (val_pos_pairs[:, 0] <= max_user_idx) & (val_pos_pairs[:, 1] <= max_movie_idx)
+        test_valid_mask = (test_pos_pairs[:, 0] <= max_user_idx) & (test_pos_pairs[:, 1] <= max_movie_idx)
+        
+        train_pos_pairs = train_pos_pairs[train_valid_mask]
+        val_pos_pairs = val_pos_pairs[val_valid_mask]
+        test_pos_pairs = test_pos_pairs[test_valid_mask]
+        
+        # Create data dictionaries
+        train_data = {'positive_pairs': train_pos_pairs}
+        val_data = {'positive_pairs': val_pos_pairs}
+        test_data = {'positive_pairs': test_pos_pairs}
+        
+        print(f"Data split: {len(train_pos_pairs)} train, {len(val_pos_pairs)} validation, {len(test_pos_pairs)} test pairs")
         
         return train_data, val_data, test_data
           

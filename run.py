@@ -32,52 +32,7 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def process_data():
-    """Process the MovieLens dataset."""
-    print("Processing MovieLens dataset...")
-    
-    # Load and process the dataset
-    dataset = MovieLensDataset(config.DATA_DIR, min_interactions=config.MIN_INTERACTIONS)
-    dataset.load_data()
 
-    # Use a subset of the data to make training more manageable
-    print("Using a subset of data for testing...")
-    dataset.ratings_df = dataset.ratings_df.sample(frac=0.30, random_state=42)  # Use 30% of ratings
-
-    # # In process_data function in run.py, after loading the dataset
-    # if hasattr(config, 'USE_DATA_SUBSET') and config.USE_DATA_SUBSET:
-    #     print(f"Using a subset of data ({config.DATA_SUBSET_FRACTION:.20%})...")
-    #     dataset.ratings_df = dataset.ratings_df.sample(frac=config.DATA_SUBSET_FRACTION, random_state=42)
-    #     print(f"Reduced dataset to {len(dataset.ratings_df)} ratings")
-    
-    # Build the graph
-    graph_builder = GraphBuilder(dataset)
-    if config.USE_BIPARTITE_GRAPH:
-        edge_index, edge_weights = graph_builder.build_bipartite_graph()
-    else:
-        edge_index, edge_weights = graph_builder.build_item_similarity_graph(
-            threshold=config.SIMILARITY_THRESHOLD
-        )
-    
-    # Extract features
-    feature_extractor = FeatureExtractor(dataset)
-    movie_features = feature_extractor.extract_movie_features(feature_dim=config.FEATURE_DIM)
-    
-    # Add visual features if enabled
-    if config.USE_VISUAL_FEATURES:
-        visual_features = feature_extractor.create_visual_features(feature_dim=config.FEATURE_DIM)
-        # Combine content and visual features (simple concatenation for now)
-        combined_features = torch.cat([movie_features, visual_features], dim=1)
-        # Project back to the desired dimension
-        projection = torch.nn.Linear(combined_features.shape[1], config.FEATURE_DIM)
-        movie_features = projection(combined_features)
-    
-    # Create train/val/test splits
-    train_data, val_data, test_data = dataset.get_train_val_test_split(
-        val_ratio=config.VAL_RATIO, test_ratio=config.TEST_RATIO
-    )
-    
-    return dataset, edge_index, edge_weights, movie_features, train_data, val_data, test_data
 
 def train_model(dataset, edge_index, edge_weights, movie_features, train_data, val_data, test_data):
     """Train the PinSage model."""
@@ -118,8 +73,9 @@ def train_model(dataset, edge_index, edge_weights, movie_features, train_data, v
     
     # Set up learning rate scheduler
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.5, patience=2, verbose=True
-    )
+    optimizer, mode='max', factor=0.5, patience=2
+)
+
     
     # Train the model using the train script
     from train import train
@@ -161,15 +117,26 @@ def evaluate_model(model, movie_features, test_data, random_walk_sampler, datase
             )
             
             # Get embeddings
-            batch_embeddings = model(
-                batch_features, 
-                edge_index=None,
-                sampled_neighbors=batch_neighbors, 
-                importance_weights=batch_weights
-            )
+            batch_embeddings = model(batch_features, edge_index=None)
             all_movie_embeddings.append(batch_embeddings.cpu())
         
         all_movie_embeddings = torch.cat(all_movie_embeddings, dim=0)
+    
+    # Make sure test data indices are within bounds
+    if 'positive_pairs' in test_data and test_data['positive_pairs'] is not None:
+        max_idx = len(all_movie_embeddings) - 1
+        
+        # Filter out pairs where either index is out of bounds
+        valid_pairs = []
+        for pair in test_data['positive_pairs']:
+            if pair[0] <= max_idx and pair[1] <= max_idx:
+                valid_pairs.append(pair)
+        
+        if len(valid_pairs) > 0:
+            test_data['positive_pairs'] = torch.stack(valid_pairs)
+        else:
+            print("Warning: No valid pairs found in test data after filtering.")
+            test_data['positive_pairs'] = torch.tensor([])
     
     # Evaluate embeddings
     print(f"Evaluating embeddings with k values: {config.K_VALUES}")
@@ -185,6 +152,55 @@ def evaluate_model(model, movie_features, test_data, random_walk_sampler, datase
     torch.save(all_movie_embeddings, os.path.join(config.OUTPUT_DIR, 'movie_embeddings.pt'))
     
     return all_movie_embeddings, results
+
+
+def process_data():
+    """Process the MovieLens dataset."""
+    print("Processing MovieLens dataset...")
+    
+    # Load and process the dataset
+    dataset = MovieLensDataset(config.DATA_DIR, min_interactions=config.MIN_INTERACTIONS)
+    dataset.load_data()
+
+    # Use a subset of the data to make training more manageable
+    print("Using a subset of data for testing...")
+    dataset.ratings_df = dataset.ratings_df.sample(frac=0.30, random_state=42)  # Use 30% of ratings
+
+    # Build the graph
+    graph_builder = GraphBuilder(dataset)
+    if config.USE_BIPARTITE_GRAPH:
+        edge_index, edge_weights = graph_builder.build_bipartite_graph()
+    else:
+        edge_index, edge_weights = graph_builder.build_item_similarity_graph(
+            threshold=config.SIMILARITY_THRESHOLD
+        )
+    
+    # Extract features
+    feature_extractor = FeatureExtractor(dataset)
+    movie_features = feature_extractor.extract_movie_features(feature_dim=config.FEATURE_DIM)
+    
+    # Create train/val/test splits
+    train_data, val_data, test_data = dataset.get_train_val_test_split(
+        val_ratio=config.VAL_RATIO, test_ratio=config.TEST_RATIO
+    )
+    
+    # Ensure test data indices are valid
+    if 'positive_pairs' in test_data and test_data['positive_pairs'] is not None:
+        max_movie_idx = len(dataset.movie_id_to_idx) - 1
+        
+        # Filter out pairs where either index is out of bounds
+        valid_pairs = []
+        for pair in test_data['positive_pairs']:
+            if pair[0] <= max_movie_idx and pair[1] <= max_movie_idx:
+                valid_pairs.append(pair)
+        
+        if len(valid_pairs) > 0:
+            test_data['positive_pairs'] = torch.stack(valid_pairs)
+        else:
+            print("Warning: No valid pairs found in test data after filtering.")
+            test_data['positive_pairs'] = torch.tensor([])
+    
+    return dataset, edge_index, edge_weights, movie_features, train_data, val_data, test_data
 
 def generate_movie_recommendations(movie_id, num_recommendations, model, movie_features, dataset, random_walk_sampler):
     """Generate recommendations for a specific movie."""

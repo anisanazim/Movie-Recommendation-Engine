@@ -17,8 +17,18 @@ def calculate_hit_rate(item_embeddings, query_indices, ground_truth_indices, k=5
     """
     hits = 0
     total = len(query_indices)
+    valid_samples = 0
+    
+    # Get the maximum valid index
+    max_idx = item_embeddings.size(0) - 1
     
     for i, query_idx in enumerate(tqdm(query_indices, desc="Calculating Hit Rate", disable=len(query_indices) < 1000)):
+        # Skip if indices are out of bounds
+        if query_idx > max_idx or ground_truth_indices[i] > max_idx:
+            continue
+            
+        valid_samples += 1
+        
         # Get query embedding
         query_embedding = item_embeddings[query_idx]
         
@@ -26,13 +36,18 @@ def calculate_hit_rate(item_embeddings, query_indices, ground_truth_indices, k=5
         similarities = torch.matmul(query_embedding, item_embeddings.t())
         
         # Get top-k items
-        _, indices = torch.topk(similarities, k=k)
+        _, indices = torch.topk(similarities, k=min(k, max_idx + 1))
         
         # Check if ground truth is in top-k
-        if ground_truth_indices[i] in indices.numpy():
+        indices_np = indices.numpy()
+        if ground_truth_indices[i] in indices_np:
             hits += 1
     
-    hit_rate = hits / total
+    # If no valid samples, return 0
+    if valid_samples == 0:
+        return 0.0
+        
+    hit_rate = hits / valid_samples  # Use valid_samples instead of total
     return hit_rate
 
 def calculate_mrr(item_embeddings, query_indices, ground_truth_indices, scale=100):
@@ -50,7 +65,14 @@ def calculate_mrr(item_embeddings, query_indices, ground_truth_indices, scale=10
     """
     reciprocal_ranks = []
     
+    # Get the maximum valid index
+    max_idx = item_embeddings.size(0) - 1
+    
     for i, query_idx in enumerate(tqdm(query_indices, desc="Calculating MRR", disable=len(query_indices) < 1000)):
+        # Skip if indices are out of bounds
+        if query_idx > max_idx or ground_truth_indices[i] > max_idx:
+            continue
+            
         # Get query embedding
         query_embedding = item_embeddings[query_idx]
         
@@ -69,6 +91,10 @@ def calculate_mrr(item_embeddings, query_indices, ground_truth_indices, scale=10
         reciprocal_rank = 1.0 / (rank / scale)
         reciprocal_ranks.append(reciprocal_rank)
     
+    # If no valid samples, return 0
+    if len(reciprocal_ranks) == 0:
+        return 0.0
+        
     mrr = np.mean(reciprocal_ranks)
     return mrr
 
@@ -86,11 +112,22 @@ def evaluate_embeddings(item_embeddings, test_data, k_values=[10, 50, 100, 500])
     """
     # Get positive pairs
     positive_pairs = test_data['positive_pairs']
+    
+    # Check if positive_pairs exists and is not empty
+    if positive_pairs is None or len(positive_pairs) == 0:
+        print("Warning: No positive pairs found in test data. Returning empty results.")
+        return {}
+        
     query_indices = positive_pairs[:, 0].numpy()
     ground_truth_indices = positive_pairs[:, 1].numpy()
     
     # Results dictionary
     results = {}
+    
+    # Check that we have valid indices
+    if len(query_indices) == 0 or len(ground_truth_indices) == 0:
+        print("Warning: Empty query or ground truth indices. Returning empty results.")
+        return results
     
     # Calculate hit rate for different k values
     for k in k_values:
@@ -116,6 +153,11 @@ def generate_recommendations(item_embeddings, query_idx, k=10, exclude_query=Tru
     Returns:
         recommendations (list): Indices of recommended items
     """
+    # Check if query index is valid
+    if query_idx >= item_embeddings.size(0):
+        print(f"Warning: Query index {query_idx} is out of bounds. Using index 0 instead.")
+        query_idx = 0
+    
     # Get query embedding
     query_embedding = item_embeddings[query_idx]
     

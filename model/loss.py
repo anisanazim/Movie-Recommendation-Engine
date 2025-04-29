@@ -175,3 +175,70 @@ class CurriculumLoss(nn.Module):
         total_loss = base_loss + hard_weight * hard_loss
         
         return total_loss
+    
+
+class BPRLoss(nn.Module):
+    """
+    Bayesian Personalized Ranking loss for implicit feedback recommendation.
+    This loss optimizes for correct ranking rather than absolute prediction scores.
+    """
+    def __init__(self, margin=0.0, reduction='mean'):
+        """
+        Initialize the BPR loss.
+        
+        Args:
+            margin (float): Small margin to ensure numerical stability
+            reduction (str): Reduction method, either 'mean' or 'sum'
+        """
+        super(BPRLoss, self).__init__()
+        self.margin = margin
+        self.reduction = reduction
+        
+    def forward(self, query_embeddings, positive_embeddings, negative_embeddings):
+        """
+        Forward pass for the BPR loss.
+        
+        Args:
+            query_embeddings (torch.Tensor): Embeddings of query items [batch_size, embed_dim]
+            positive_embeddings (torch.Tensor): Embeddings of positive items [batch_size, embed_dim]
+            negative_embeddings (torch.Tensor): Embeddings of negative items [batch_size, embed_dim] or [batch_size, num_negatives, embed_dim]
+            
+        Returns:
+            loss (torch.Tensor): Computed BPR loss
+        """
+        # Compute similarity with positive examples
+        pos_scores = torch.sum(query_embeddings * positive_embeddings, dim=1)
+        
+        # Handle multiple negatives per query if provided
+        if negative_embeddings.dim() == 3:
+            # Multiple negative examples per query
+            batch_size, num_negatives, embed_dim = negative_embeddings.size()
+            
+            # Expand query embeddings to match negative embeddings shape
+            expanded_query = query_embeddings.unsqueeze(1).expand(-1, num_negatives, -1)
+            
+            # Compute similarity scores for all negative examples
+            neg_scores = torch.sum(expanded_query * negative_embeddings, dim=2)
+            
+            # Calculate BPR loss for each negative sample
+            # log(sigmoid(pos_score - neg_score))
+            bpr_loss = -torch.log(torch.sigmoid(pos_scores.unsqueeze(1) - neg_scores + self.margin))
+            
+            # Apply reduction
+            if self.reduction == 'mean':
+                return bpr_loss.mean()
+            else:  # sum
+                return bpr_loss.sum()
+        else:
+            # Single negative example per query
+            neg_scores = torch.sum(query_embeddings * negative_embeddings, dim=1)
+            
+            # Calculate BPR loss
+            # log(sigmoid(pos_score - neg_score))
+            bpr_loss = -torch.log(torch.sigmoid(pos_scores - neg_scores + self.margin))
+            
+            # Apply reduction
+            if self.reduction == 'mean':
+                return bpr_loss.mean()
+            else:  # sum
+                return bpr_loss.sum()
